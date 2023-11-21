@@ -73,6 +73,25 @@ class ReplayBuffer(Buffer):
         self.ptr = (self.ptr + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
 
+    def add_batch(self,
+            obss: np.ndarray,
+            next_obss: np.ndarray,
+            actions: np.ndarray,
+            rewards: np.ndarray,
+            terminals: np.ndarray):
+
+        batch_size = len(obss)
+        indexes = np.arange(self.ptr, self.ptr + batch_size) % self.max_size
+
+        self.state[indexes] = np.array(obss).copy()
+        self.next_state[indexes] = np.array(next_obss).copy()
+        self.action[indexes] = np.array(actions).copy()
+        self.reward[indexes] = np.array(rewards).copy()
+        self.done[indexes] = np.array(terminals).copy().reshape(-1, 1)
+
+        self.ptr = (self.ptr + batch_size) % self.max_size
+        self.size = min(self.size + batch_size, self.max_size)
+
     def sample(self, batch_size):
         ind = np.random.randint(0, self.size, size=batch_size)
 
@@ -83,6 +102,15 @@ class ReplayBuffer(Buffer):
             'next_observations': torch.FloatTensor(self.next_state[ind]).to(self.device), 
             'dones': torch.FloatTensor(self.done[ind]).to(self.device)
             }
+
+    def sample_all(self):
+        return {
+            'observations': torch.FloatTensor(self.state).to(self.device),
+            'actions': torch.FloatTensor(self.action).to(self.device),
+            'rewards': torch.FloatTensor(self.reward).to(self.device),
+            'next_observations': torch.FloatTensor(self.next_state).to(self.device),
+            'dones': torch.FloatTensor(self.done).to(self.device)
+        }
 
 def batch_to_torch(batch, device):
     return {
