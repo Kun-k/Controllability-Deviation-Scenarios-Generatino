@@ -23,7 +23,6 @@ class StepSampler(object):
             self._traj_steps += 1
             observation = self._current_observation
 
-            #TODO sample actions from current policy
             if ego_policy != None:
                 action_ego = ego_policy(
                     np.expand_dims(observation, 0), deterministic=deterministic

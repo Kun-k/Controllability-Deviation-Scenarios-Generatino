@@ -81,6 +81,8 @@ class Env:
         self.adv_dev_cost_record = 0
         self.states = []  # 记录车辆状态, 0为ego_agent, 1-num_agents为adv_agents
         self.actions = []  # 记录车辆动作, 0为ego_agent, 1-num_agents为adv_agents
+
+        # TODO: 把这段代码美化一下行不
         for t in range(self.sim_horizon + 1):
             state_t = []
             action_t = []
@@ -89,7 +91,6 @@ class Env:
                 action_t.extend([0, 0])
             self.states.append(state_t)
             self.actions.append(action_t)
-
         # 根据真实数据初始化的方法
         if self.ego_policy == "genedata" or self.adv_policy == "genedata":
             if scenario is None:

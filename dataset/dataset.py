@@ -14,7 +14,7 @@ from utils.car_dis_comput import dist_between_cars
 
 
 def dataset(record_file, track_file, output_file, r):
-    # TODO: 车辆长宽，需随时更新数据
+    # 车辆长宽，需随时更新数据
     length = 5
     width = 1.8
 
@@ -129,7 +129,7 @@ def dataset(record_file, track_file, output_file, r):
         # r2
         elif r[0:2] == "r2":
             ego_col_cost_record, adv_col_cost_record, adv_road_cost_record = float('inf'), float('inf'), float('inf')
-            # TODO: 设置阈值
+            # 设置阈值
             bv_bv_thresh = 1.5
             bv_road_thresh = float("inf")
             a, b, c = list(map(float, r[3:].split('-')))
@@ -171,7 +171,7 @@ def dataset(record_file, track_file, output_file, r):
             reward = - a * ego_col_cost + b * adv_col_cost + c * adv_road_cost
             # reward = -ego_col_cost + adv_col_cost + adv_road_cost
             dataset['rewards'].append(reward)
-            # TODO: BV距离AV太远则不再采样
+            # BV距离AV太远则不再采样
             if ego_col_cost > 15:
                 dataset['observations'] = dataset['observations'][0: t + 1]
                 dataset['terminals'] = dataset['terminals'][0: t + 1]

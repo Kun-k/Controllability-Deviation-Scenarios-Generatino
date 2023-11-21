@@ -116,7 +116,6 @@ class fvdm_model(object):
                     v_next = max(v_next - self.maxdec, 0)
             else:  # 减速情况
                 v_next = max(self.speed - self.maxdec, 0)
-        # TODO: 没有考虑后车和侧后车加速跟车、侧前车减速别车的情况
         else:
             v_next = min(self.speed + self.maxacc, self.vmax)
         return v_next
@@ -126,7 +125,7 @@ class fvdm_model(object):
         ifChangeLane = False  # 是否变道
         leftChangeLane = False  # 向左变道
         rightChangeLane = False  # 向右变道
-        Prc, Plc = 0.6, 0.9  # TODO: 向右、向左的换道概率
+        Prc, Plc = 0.6, 0.9  # 向右、向左的换道概率
         nearFrontCar_0 = self.nearFrontCar()[0]
         nearFrontCar_1 = self.nearFrontCar()[1]
         nearFrontCar_2 = self.nearFrontCar()[2]
