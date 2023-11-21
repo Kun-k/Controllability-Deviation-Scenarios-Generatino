@@ -8,6 +8,7 @@ from torch.distributions import Normal
 import math
 import torch.autograd as autograd
 from torch.nn.utils import spectral_norm
+from typing import Dict, List, Union, Tuple, Optional
 # from copy import deepcopy
 
 
@@ -312,6 +313,7 @@ class Sparsemax(nn.Module):
         self.grad_input = nonzeros * (grad_output - sum.expand_as(grad_output))
 
         return self.grad_input
+
 
 if __name__ == '__main__':
     sparsemax = Sparsemax(dim=None)

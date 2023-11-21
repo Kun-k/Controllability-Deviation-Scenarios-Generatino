@@ -1,16 +1,9 @@
-from collections import OrderedDict
-from copy import deepcopy
-
 from ml_collections import ConfigDict
 
-import numpy as np
 import torch
-import pdb
-import torch.optim as optim
-from torch import nn as nn
 import torch.nn.functional as F
 
-from .model import Scalar, soft_target_update
+from models.sac.model import Scalar, soft_target_update
 
 
 class SAC(object):

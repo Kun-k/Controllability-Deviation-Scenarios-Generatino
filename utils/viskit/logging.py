@@ -16,12 +16,9 @@ import csv
 import json
 import pickle
 import errno
-import time
 import torch
 
-import tempfile
-
-from models.viskit.tabulate import tabulate
+from utils.viskit.tabulate import tabulate
 
 
 class TerminalTablePrinter(object):

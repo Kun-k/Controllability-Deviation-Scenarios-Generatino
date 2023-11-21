@@ -1,28 +1,21 @@
 import datetime
 import os
-import pprint
-import random
-import re
 import sys
-import time
-import uuid
 from copy import deepcopy
-from sre_parse import FLAGS
 import absl.app
 import absl.flags
 import numpy as np
-import torch
 import wandb
 from tqdm import trange
 
-from models.SimpleSAC.sac import SAC
-from models.SimpleSAC.envs import Env
-from models.SimpleSAC.replay_buffer import ReplayBuffer
-from models.SimpleSAC.model import TanhGaussianPolicy, FullyConnectedQFunction, SamplerPolicy
-from models.SimpleSAC.sampler import StepSampler, TrajSampler
-from models.SimpleSAC.utils_h2o import Timer, define_flags_with_default, set_random_seed, get_user_flags, prefix_metrics
-from models.SimpleSAC.utils_h2o import WandBLogger
-from models.viskit.logging import logger, setup_logger
+from models.sac.sac import SAC
+from envs.envs import Env
+from buffer.replay_buffer import ReplayBuffer
+from models.sac.model import TanhGaussianPolicy, FullyConnectedQFunction, SamplerPolicy
+from buffer.sampler import StepSampler, TrajSampler
+from utils.utils import Timer, define_flags_with_default, set_random_seed, get_user_flags, prefix_metrics
+from utils.utils import WandBLogger
+from utils.viskit.logging import logger, setup_logger
 
 import argparse
 
