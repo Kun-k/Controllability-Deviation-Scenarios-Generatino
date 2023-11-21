@@ -29,18 +29,21 @@ class SAC(object):
         config.optimizer_type = 'adam'
         config.soft_target_update_rate = 5e-3
         config.target_update_period = 1
+        config.alpha_l1 = 1.0
 
         if updates is not None:
             config.update(ConfigDict(updates).copy_and_resolve_references())
         return config
 
-    def __init__(self, config, policy, qf1, qf2, target_qf1, target_qf2):
+    def __init__(self, config, policy, qf1, qf2, target_qf1, target_qf2, deviation_theta=0, alpha_l1=1):
         self.config = SAC.get_default_config(config)
+        self.config.alpha_l1 = alpha_l1
         self.policy = policy
         self.qf1 = qf1
         self.qf2 = qf2
         self.target_qf1 = target_qf1
         self.target_qf2 = target_qf2
+        self.deviation_theta = torch.tensor(deviation_theta * torch.pi / 180, dtype=torch.float64)
 
         optimizer_class = {
             'adam': torch.optim.Adam,
@@ -53,6 +56,10 @@ class SAC(object):
         self.qf_optimizer = optimizer_class(
             list(self.qf1.parameters()) + list(self.qf2.parameters()), self.config.qf_lr
         )
+        # self.l1_optimizer = optimizer_class(
+        #     list(self.qf1.embedding_network.parameters()) +
+        #     list(self.qf2.embedding_network.parameters()), self.config.qf_lr
+        # )
 
         if self.config.use_automatic_entropy_tuning:
             self.log_alpha = Scalar(0.0)
@@ -70,7 +77,7 @@ class SAC(object):
         soft_target_update(self.qf1, self.target_qf1, soft_target_update_rate)
         soft_target_update(self.qf2, self.target_qf2, soft_target_update_rate)
 
-    def train(self, batch):
+    def train(self, batch, batch_real):
         self._total_steps += 1
 
         observations = batch['observations']
@@ -114,6 +121,19 @@ class SAC(object):
         qf2_loss = F.mse_loss(q2_pred, q_target.detach())
         qf_loss = qf1_loss + qf2_loss
 
+        """ L1 loss """
+        real_observations = batch_real['observations']
+        real_actions = batch_real['actions']
+        pi_actions, _ = self.policy(real_observations)
+        # theta = torch.tensor(np.pi / 6, dtype=torch.float64)
+        qf1_kernal = torch.sum(self.qf1.embedding(real_observations, real_actions) *
+                               self.qf1.embedding(real_observations, pi_actions.detach()), dim=1)
+        qf1_l1_loss = torch.abs(qf1_kernal - torch.cos(self.deviation_theta)).mean()
+        qf2_kernal = torch.sum(self.qf2.embedding(real_observations, real_actions) *
+                               self.qf2.embedding(real_observations, pi_actions.detach()), dim=1)
+        qf2_l1_loss = torch.abs(qf2_kernal - torch.cos(self.deviation_theta)).mean()
+        l1_loss = self.config.alpha_l1 * (qf1_l1_loss + qf2_l1_loss)
+
         if self.config.use_automatic_entropy_tuning:
             self.alpha_optimizer.zero_grad()
             alpha_loss.backward()
@@ -126,7 +146,12 @@ class SAC(object):
 
         self.qf_optimizer.zero_grad()
         qf_loss.backward()
+        l1_loss.backward()
         self.qf_optimizer.step()
+
+        # self.l1_optimizer.zero_grad()
+        # l1_loss.backward()
+        # self.l1_optimizer.step()
 
         if self.total_steps % self.config.target_update_period == 0:
             self.update_target_network(

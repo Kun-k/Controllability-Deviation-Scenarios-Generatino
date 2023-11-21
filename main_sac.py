@@ -40,7 +40,10 @@ parser.add_argument('--is_save', type=str, default="False")
 parser.add_argument('--device', type=str, default="cuda:0")
 parser.add_argument('--seed', type=int, default=42)
 parser.add_argument('--save_model', type=str, default="False")
-# parser.add_argument('--cql_min_q_weight', type=float, default=0.1)
+parser.add_argument('--deviation_theta', type=float, default=10)
+# tmp
+parser.add_argument('--alpha_l1', type=float, default=0.1)
+
 
 args = parser.parse_args()
 args.is_save = True if args.is_save == "True" else False
@@ -50,7 +53,10 @@ print(args)
 while len(sys.argv) > 1:
 	sys.argv.pop()
 FLAGS_DEF = define_flags_with_default(
-    USED_wandb = args.USED_wandb,
+    # tmp
+    alpha_l1=args.alpha_l1,
+
+    USED_wandb=args.USED_wandb,
     ego_policy=args.ego_policy,  # "uniform", "sumo", "fvdm"
     adv_policy=args.adv_policy,  # "uniform", "sumo", "fvdm"
     num_agents=args.num_agents,
@@ -62,6 +68,7 @@ FLAGS_DEF = define_flags_with_default(
     device=args.device,
     # cql_min_q_weight=args.cql_min_q_weight,
     seed=args.seed,
+    deviation_theta=args.deviation_theta,
     replay_buffer_size=1000000,
 
     current_time=datetime.datetime.now().strftime('%y-%m-%d-%H-%M-%S'),
@@ -105,12 +112,14 @@ def argparse():
 
 def main(argv):
     FLAGS = absl.flags.FLAGS
+    run_name = f"SAC_av={FLAGS.ego_policy}_" \
+               f"bv={FLAGS.num_agents}-{FLAGS.adv_policy}_" \
+               f"theta={FLAGS.deviation_theta}_" \
+               f"alpha_l1={FLAGS.alpha_l1}_" \
+               f"r-ego={FLAGS.r_ego}_r-adv={FLAGS.r_adv}_" \
+               f"seed={FLAGS.seed}_time={FLAGS.current_time}"
     if FLAGS.is_save:
-        eval_savepath = "output/" + \
-                        f"SAC_av={FLAGS.ego_policy}_" \
-                        f"bv={FLAGS.num_agents}-{FLAGS.adv_policy}_" \
-                        f"r-ego={FLAGS.r_ego}_r-adv={FLAGS.r_adv}_" \
-                        f"seed={FLAGS.seed}_time={FLAGS.current_time}" + "/"
+        eval_savepath = "output/" + run_name + "/"
         if os.path.exists("output") is False:
             os.mkdir("output")
         if os.path.exists(eval_savepath) is False:
@@ -123,10 +132,7 @@ def main(argv):
     if FLAGS.USED_wandb:
         variant = get_user_flags(FLAGS, FLAGS_DEF)
         wandb_logger = WandBLogger(config=FLAGS.logging, variant=variant)
-        wandb.run.name = f"SAC_av={FLAGS.ego_policy}_" \
-                         f"bv={FLAGS.num_agents}-{FLAGS.adv_policy}_" \
-                         f"r-ego={FLAGS.r_ego}_r-adv={FLAGS.r_adv}_" \
-                         f"seed={FLAGS.seed}_time={FLAGS.current_time}"
+        wandb.run.name = run_name
 
         setup_logger(
             variant=variant,
@@ -154,8 +160,15 @@ def main(argv):
     num_action_ego = real_env.action_space_ego[0]
     replay_buffer_ego = ReplayBuffer(num_state, num_action_ego, FLAGS.replay_buffer_size, device=FLAGS.device) \
         if FLAGS.ego_policy == "RL" else None
-    replay_buffer_adv = ReplayBuffer(num_state, num_action_adv, FLAGS.replay_buffer_size, device=FLAGS.device) \
-        if FLAGS.adv_policy == "RL" else None
+    # replay_buffer_adv = ReplayBuffer(num_state, num_action_adv, FLAGS.replay_buffer_size, device=FLAGS.device,
+    #                                  datapath=FLAGS.realdata_path) \
+    #     if FLAGS.adv_policy == "RL" else None
+    replay_buffer_sac = ReplayBuffer(num_state, num_action_adv, FLAGS.replay_buffer_size, device=FLAGS.device,
+                                     datapath=None)
+    replay_buffer_real = ReplayBuffer(num_state, num_action_adv, FLAGS.replay_buffer_size, device=FLAGS.device,
+                                     datapath=FLAGS.realdata_path)
+    # replay_buffer_sac = ReplayBuffer(num_state, num_action_adv, FLAGS.replay_buffer_size, device=FLAGS.device,
+    #                                  datapath=FLAGS.realdata_path)
 
     if FLAGS.ego_policy == "RL":
         ego_policy = TanhGaussianPolicy(
@@ -223,7 +236,8 @@ def main(argv):
         if FLAGS.sac_adv.target_entropy >= 0.0:
             FLAGS.sac_adv.target_entropy = -np.prod(eval_sampler.env.action_space_adv).item()
 
-        sac_adv = SAC(FLAGS.sac_adv, adv_policy, qf1_adv, qf2_adv, target_qf1_adv, target_qf2_adv)
+        sac_adv = SAC(FLAGS.sac_adv, adv_policy, qf1_adv, qf2_adv, target_qf1_adv, target_qf2_adv,
+                      deviation_theta=FLAGS.deviation_theta, alpha_l1=FLAGS.alpha_l1)
         sac_adv.torch_to_device(FLAGS.device)
 
         sampler_adv_policy = SamplerPolicy(adv_policy, FLAGS.device)
@@ -323,20 +337,21 @@ def main(argv):
                 with Timer() as rollout_timer:
                     train_sampler.sample(
                         ego_policy=sampler_ego_policy, adv_policy=sampler_adv_policy, n_steps=FLAGS.n_rollout_steps_per_epoch,
-                        deterministic=False, replay_buffer_ego=None, replay_buffer_adv=replay_buffer_adv,
+                        deterministic=False, replay_buffer_ego=None, replay_buffer_adv=replay_buffer_sac,
                         joint_noise_std=FLAGS.joint_noise_std
                     )
                     metrics['epoch'] = epoch
 
                 with Timer() as train_timer:
                     for batch_idx in trange(FLAGS.n_train_step_per_epoch):
-                        batch_adv = replay_buffer_adv.sample(FLAGS.batch_size)
+                        batch_adv = replay_buffer_sac.sample(FLAGS.batch_size)
+                        batch_real = replay_buffer_real.sample(FLAGS.batch_size)
                         if batch_idx + 1 == FLAGS.n_train_step_per_epoch:
                             metrics.update(
-                                prefix_metrics(sac_adv.train(batch_adv), 'sac_adv')
+                                prefix_metrics(sac_adv.train(batch_adv, batch_real), 'sac_adv')
                             )
                         else:
-                            sac_adv.train(batch_adv)
+                            sac_adv.train(batch_adv, batch_real)
 
                 with Timer() as eval_timer:
                     if epoch == 0 or (epoch + 1) % FLAGS.eval_period == 0:

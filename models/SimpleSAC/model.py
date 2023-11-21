@@ -200,11 +200,13 @@ class FullyConnectedQFunction(nn.Module):
         self.network = FullyConnectedNetwork(
             observation_dim + action_dim, 1, arch, orthogonal_init, is_LN=is_LN, is_SN=is_SN
         )
-        # self.embedding_network =
+        # self.embedding_network = self.network.network[:-1]
 
     def embedding(self, observations, actions):
         input_tensor = torch.cat([observations, actions], dim=-1)
         output = self.network.network[:-1](input_tensor)
+        # output = self.embedding_network(input_tensor)
+        output = torch.nn.functional.normalize(output, dim=-1)
         return output
 
     @multiple_action_q_function

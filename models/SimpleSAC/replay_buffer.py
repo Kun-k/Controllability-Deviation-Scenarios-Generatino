@@ -4,6 +4,7 @@
 '''
 import torch
 import numpy as np
+import os
 
 
 class Buffer(object):
@@ -16,19 +17,49 @@ class Buffer(object):
 
 class ReplayBuffer(Buffer):
     def __init__(self, state_dim, action_dim, max_size=int(1e6), device='cuda', datapath=None):
-        self.max_size = max_size
-        self.ptr = 0
-        self.size = 0
-
-        self.state = np.zeros((max_size, state_dim))
-        self.action = np.zeros((max_size, action_dim))
-        self.next_state = np.zeros((max_size, state_dim))
-        self.next_action = np.zeros((max_size, action_dim))
-        self.reward = np.zeros((max_size, 1))
-        self.done = np.zeros((max_size, 1))
-
         if datapath != None:
-            ...
+            file_list = []
+            for f in os.listdir(datapath):
+                for ff in os.listdir(datapath + f):
+                    file_list.append(datapath + f + '/' + ff)
+
+            dataset = {'observations': [],
+                       'actions': [],
+                       'rewards': [],
+                       'next_observations': [],
+                       'terminals': []}
+            key_list = ['observations', 'actions', 'rewards', 'next_observations', 'terminals']
+
+            for r in range(len(file_list)):
+                newdataset = np.load(file_list[r], allow_pickle=True).item()
+                for key in key_list:
+                    dataset[key].extend(newdataset[key])
+
+            total_num = len(dataset['observations'])
+            idx = np.random.choice(range(total_num), total_num, replace=False)
+            self.state = np.vstack(np.array(dataset['observations'])).astype(np.float32)[idx, :
+                ]  # An (N, dim_observation)-dimensional numpy array of observations
+            self.action = np.vstack(np.array(dataset['actions'])).astype(np.float32)[idx,
+                :]  # An (N, dim_action)-dimensional numpy array of actions
+            self.reward = np.vstack(np.array(dataset['rewards'])).astype(np.float32)[idx,
+                :]  # An (N,)-dimensional numpy array of rewards
+            self.next_state = np.vstack(np.array(dataset['next_observations'])).astype(np.float32)[idx,
+                 :]  # An (N, dim_observation)-dimensional numpy array of next observations
+            self.done = np.vstack(np.array(dataset['terminals']))[idx,
+                   :]  # An (N,)-dimensional numpy array of terminal flags
+            fixed_dataset_size = self.reward.shape[0]
+            self.max_size = fixed_dataset_size
+            self.ptr = fixed_dataset_size
+            self.size = fixed_dataset_size
+        else:
+            self.state = np.zeros((max_size, state_dim))
+            self.action = np.zeros((max_size, action_dim))
+            self.next_state = np.zeros((max_size, state_dim))
+            self.reward = np.zeros((max_size, 1))
+            self.done = np.zeros((max_size, 1))
+            self.max_size = max_size
+            self.ptr = 0
+            self.size = 0
 
         self.device = torch.device(device)
 
