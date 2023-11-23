@@ -3,7 +3,7 @@ from ml_collections import ConfigDict
 import torch
 import torch.nn.functional as F
 
-from models.sac.model import Scalar, soft_target_update
+from models.model import Scalar, soft_target_update
 
 
 class SAC(object):
