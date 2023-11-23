@@ -8,10 +8,10 @@ import numpy as np
 import wandb
 from tqdm import trange
 
-from models.sac.sac import SAC
+from models.sac import SAC
 from envs.envs import Env
 from buffer.replay_buffer import ReplayBuffer
-from models.sac.model import TanhGaussianPolicy, FullyConnectedQFunction, SamplerPolicy
+from models.model import TanhGaussianPolicy, FullyConnectedQFunction, SamplerPolicy
 from buffer.sampler import StepSampler, TrajSampler
 from utils.utils import Timer, define_flags_with_default, set_random_seed, get_user_flags, prefix_metrics
 from utils.utils import WandBLogger
@@ -35,7 +35,7 @@ parser.add_argument('--seed', type=int, default=42)
 parser.add_argument('--save_model', type=str, default="False")
 parser.add_argument('--deviation_theta', type=float, default=10)
 # tmp
-parser.add_argument('--alpha_l1', type=float, default=0.1)
+parser.add_argument('--alpha_l1', type=float, default=0.0)
 
 
 args = parser.parse_args()
@@ -102,7 +102,9 @@ FLAGS_DEF = define_flags_with_default(
 
 def main(argv):
     FLAGS = absl.flags.FLAGS
-    run_name = f"SAC_av={FLAGS.ego_policy}_" \
+    # label = 'without_l1'
+    label = ''
+    run_name = f"{label}_SAC_av={FLAGS.ego_policy}_" \
                f"bv={FLAGS.num_agents}-{FLAGS.adv_policy}_" \
                f"theta={FLAGS.deviation_theta}_" \
                f"alpha_l1={FLAGS.alpha_l1}_" \

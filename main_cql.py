@@ -273,7 +273,6 @@ def main(argv):
             for epoch in trange(FLAGS.n_epochs_ego):
                 metrics = {}
 
-                # TODO rollout from the simulator
                 with Timer() as rollout_timer:
                     # 对AV进行预训练
                     if FLAGS.adv_policy == "RL" and l == 0:
@@ -291,7 +290,6 @@ def main(argv):
                     )
                     metrics['epoch'] = epoch
 
-                # TODO Train from the mixed data
                 with Timer() as train_timer:
                     for batch_idx in trange(FLAGS.n_train_step_per_epoch):
                         batch_ego = replay_buffer_ego.sample(FLAGS.batch_size)
@@ -302,7 +300,6 @@ def main(argv):
                         else:
                             sac_ego.train(batch_ego)
 
-                # TODO Evaluate in the real world
                 with Timer() as eval_timer:
                     # if FLAGS.adv_policy == "RL":
                     # train_sampler.env.adv_policy = "fvdm"
