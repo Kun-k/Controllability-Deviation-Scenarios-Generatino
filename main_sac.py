@@ -17,7 +17,9 @@ from utils.utils import Timer, define_flags_with_default, set_random_seed, get_u
 from utils.utils import WandBLogger
 from utils.viskit.logging import logger, setup_logger
 
+import torch
 import argparse
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--USED_wandb', type=str, default="False")
@@ -28,12 +30,12 @@ parser.add_argument('--r_ego', type=str, default="r1")
 parser.add_argument('--r_adv', type=str, default="r1")
 parser.add_argument('--realdata_path', type=str, default="E:/scenario_generation/dataset/Re_2_H2O/r3_dis_20_car_4/")  #
 # parser.add_argument('--realdata_path', type=str, default="../byH2O/dataset/r1_dis_10_car_2/")  #
-# parser.add_argument('--batch_ratio', type=float, default=0.5)
+parser.add_argument('--batch_ratio', type=float, default=0)  # 真实数据的比例
 parser.add_argument('--is_save', type=str, default="False")
 parser.add_argument('--device', type=str, default="cuda:0")
 parser.add_argument('--seed', type=int, default=42)
 parser.add_argument('--save_model', type=str, default="False")
-parser.add_argument('--deviation_theta', type=float, default=10)
+parser.add_argument('--deviation_theta', type=float, default=0)
 # tmp
 parser.add_argument('--alpha_l1', type=float, default=0.0)
 
@@ -48,6 +50,7 @@ while len(sys.argv) > 1:
 FLAGS_DEF = define_flags_with_default(
     # tmp
     alpha_l1=args.alpha_l1,
+    batch_ratio=args.batch_ratio,
 
     USED_wandb=args.USED_wandb,
     ego_policy=args.ego_policy,  # "uniform", "sumo", "fvdm"
@@ -86,7 +89,7 @@ FLAGS_DEF = define_flags_with_default(
 
     # train and evaluate policy
     n_epochs_ego=0,
-    n_epochs_adv=1000,
+    n_epochs_adv=5000,
     n_loops=1,
     bc_epochs=0,
     n_rollout_steps_per_epoch=1000,
@@ -103,8 +106,8 @@ FLAGS_DEF = define_flags_with_default(
 def main(argv):
     FLAGS = absl.flags.FLAGS
     # label = 'without_l1'
-    label = ''
-    run_name = f"{label}_SAC_av={FLAGS.ego_policy}_" \
+    label = 'seed-without-l1_'
+    run_name = f"{label}SAC_av={FLAGS.ego_policy}_" \
                f"bv={FLAGS.num_agents}-{FLAGS.adv_policy}_" \
                f"theta={FLAGS.deviation_theta}_" \
                f"alpha_l1={FLAGS.alpha_l1}_" \
@@ -158,7 +161,7 @@ def main(argv):
     replay_buffer_sac = ReplayBuffer(num_state, num_action_adv, FLAGS.replay_buffer_size, device=FLAGS.device,
                                      datapath=None)
     replay_buffer_real = ReplayBuffer(num_state, num_action_adv, FLAGS.replay_buffer_size, device=FLAGS.device,
-                                     datapath=FLAGS.realdata_path)
+                                     datapath=FLAGS.realdata_path, reward_fun="adv_r1")
     # replay_buffer_sac = ReplayBuffer(num_state, num_action_adv, FLAGS.replay_buffer_size, device=FLAGS.device,
     #                                  datapath=FLAGS.realdata_path)
 
@@ -333,14 +336,18 @@ def main(argv):
 
                 with Timer() as train_timer:
                     for batch_idx in trange(FLAGS.n_train_step_per_epoch):
-                        batch_adv = replay_buffer_sac.sample(FLAGS.batch_size)
-                        batch_real = replay_buffer_real.sample(FLAGS.batch_size)
+                        batch_adv = replay_buffer_sac.sample(FLAGS.batch_size - int(FLAGS.batch_size * FLAGS.batch_ratio))
+                        batch_real = replay_buffer_real.sample(int(FLAGS.batch_size * FLAGS.batch_ratio))
+                        batch_sac = {key: torch.cat((batch_adv.get(key, []), batch_real.get(key, [])))
+                                     for key in set(batch_adv) | set(batch_real)}
+                        batch_l1 = replay_buffer_real.sample(FLAGS.batch_size)
+
                         if batch_idx + 1 == FLAGS.n_train_step_per_epoch:
                             metrics.update(
-                                prefix_metrics(sac_adv.train(batch_adv, batch_real), 'sac_adv')
+                                prefix_metrics(sac_adv.train(batch_sac, batch_l1), 'sac_adv')
                             )
                         else:
-                            sac_adv.train(batch_adv, batch_real)
+                            sac_adv.train(batch_sac, batch_l1)
 
                 with Timer() as eval_timer:
                     if epoch == 0 or (epoch + 1) % FLAGS.eval_period == 0:
