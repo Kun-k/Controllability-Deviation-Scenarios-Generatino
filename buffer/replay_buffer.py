@@ -5,6 +5,8 @@
 import torch
 import numpy as np
 import os
+from utils.car_dis_comput import dist_between_cars
+from utils.collision_test import col_test
 
 
 class Buffer(object):
@@ -16,7 +18,8 @@ class Buffer(object):
         pass
 
 class ReplayBuffer(Buffer):
-    def __init__(self, state_dim, action_dim, max_size=int(1e6), device='cuda', datapath=None):
+    def __init__(self, state_dim, action_dim, max_size=int(1e6), device='cuda', datapath=None, reward_fun=None,
+                 car_info=None, road_info=None):
         if datapath != None:
             file_list = []
             for f in os.listdir(datapath):
@@ -34,6 +37,21 @@ class ReplayBuffer(Buffer):
                 newdataset = np.load(file_list[r], allow_pickle=True).item()
                 for key in key_list:
                     dataset[key].extend(newdataset[key])
+
+            self.dataset = dataset
+            self.action_dim = action_dim
+            self.reward_fun = self.adv_r1 if reward_fun == "adv_r1" \
+                else self.adv_r2 if reward_fun[0: 6] == "adv_r2" \
+                else self.adv_r4 if reward_fun[0: 6] == "adv_r4" \
+                else self.ego_r1 if reward_fun == "ego_r1" \
+                else None
+
+            if self.reward_fun is not None:
+                self.car_info = car_info
+                self.road_info = road_info
+                self.max_speed = 40
+                # TODO: 应该只对特定数据计算
+                self.reward_fun()
 
             total_num = len(dataset['observations'])
             idx = np.random.choice(range(total_num), total_num, replace=False)
@@ -111,6 +129,112 @@ class ReplayBuffer(Buffer):
             'next_observations': torch.FloatTensor(self.next_state).to(self.device),
             'dones': torch.FloatTensor(self.done).to(self.device)
         }
+
+    #### TODO: 设置几组参数可调的奖励函数
+    def adv_r2(self):
+        self.dataset['rewards'] = []
+        # length = 5
+        # width = 1.8
+        [length_ego, width_ego] = self.car_info[0][2]
+        num_adv_agents = int(self.action_dim / 2)
+        for t in range(len(self.dataset['observations'])):
+            ego_state = self.dataset['next_observations'][t][0:4]
+            adv_state = self.dataset['next_observations'][t][4:]
+            # r2
+            ego_col_cost_record, adv_col_cost_record, adv_road_cost_record = float('inf'), float(
+                'inf'), float(
+                'inf')
+            bv_bv_thresh = 1.5
+            bv_road_thresh = float("inf")
+            a, b, c = list(map(float, self.reward_fun[3:].split('-')))
+
+            for i in range(num_adv_agents):
+                [length, width] = self.car_info[i + 1][2]
+                car_ego = [ego_state[0], ego_state[1],
+                           length_ego, width_ego, ego_state[3]]
+                careward_fun = [adv_state[i * 4 + 0], adv_state[i * 4 + 1],
+                                length, width, adv_state[i * 4 + 3]]
+                dis_ego_adv = dist_between_cars(car_ego, careward_fun)
+                if dis_ego_adv < ego_col_cost_record:
+                    ego_col_cost_record = dis_ego_adv
+            ego_col_cost = ego_col_cost_record
+
+            for i in range(num_adv_agents):
+                for j in range(i + 1, num_adv_agents):
+                    careward_fun_j = [adv_state[j * 4 + 0], adv_state[j * 4 + 1],
+                                      length, width, adv_state[j * 4 + 3]]
+                    careward_fun_i = [adv_state[i * 4 + 0], adv_state[i * 4 + 1],
+                                      length, width, adv_state[i * 4 + 3]]
+                    dis_adv_adv = dist_between_cars(careward_fun_i, careward_fun_j)
+                    if dis_adv_adv < adv_col_cost_record:
+                        adv_col_cost_record = dis_adv_adv
+            adv_col_cost = min(adv_col_cost_record, bv_bv_thresh)
+
+            road_up, road_low = 12, 0
+            car_width = 1.8
+            for i in range(num_adv_agents):
+                y = adv_state[i * 4 + 1]
+                dis_adv_road = min(road_up - (y + car_width / 2), (y - car_width / 2) - road_low)
+                if dis_adv_road < adv_road_cost_record:
+                    adv_road_cost_record = dis_adv_road
+            adv_road_cost = min(adv_road_cost_record, bv_road_thresh)
+            reward = - a * ego_col_cost + b * adv_col_cost + c * adv_road_cost
+            col = col_test(self.car_info, self.dataset['next_observations'][t], self.road_info)
+            col_list = col[0] + col[1]
+            reward += 100 if 0 in col_list \
+                else -100 if len(col_list) != 0 \
+                else 0
+            self.dataset['rewards'].append(reward)
+            # if ego_col_cost > 15:
+            #     self.dataset['observations'] = self.dataset['observations'][0: t + 1]
+            #     self.dataset['terminals'] = self.dataset['terminals'][0: t + 1]
+            #     break
+
+    def adv_r1(self):
+        self.dataset['rewards'] = []
+        for t in range(len(self.dataset['observations'])):
+            col = col_test(self.car_info, self.dataset['next_observations'][t], self.road_info)
+            col_list = col[0] + col[1]
+            reward = 100 if 0 in col_list \
+                else -100 if len(col_list) != 0 \
+                else 0
+            self.dataset['rewards'].append(reward)
+
+    # todo: 为adv_r4和ego_r1设置可调的参数
+    def adv_r4(self):
+        self.dataset['rewards'] = []
+        # TODO: self.max_speed
+        num_adv_agents = int(self.action_dim / 2)
+        for t in range(len(self.dataset['observations'])):
+            adv_state = self.dataset['next_observations'][t][4:]
+            col = col_test(self.car_info, self.dataset['next_observations'][t], self.road_info)
+            col_list = col[0] + col[1]
+            col_cost = 100 if 0 in col_list \
+                else -100 if len(col_list) != 0 \
+                else 0
+            speed_cost = 0
+            yaw_cost = 0
+            for i in range(num_adv_agents):
+                speed_cost = adv_state[i: (i + 1) * 4][2] / self.max_speed - 1 / 2
+                yaw_cost = - abs(adv_state[i: (i + 1) * 4][3]) / (np.pi / 3) * 5 * 0
+            reward = col_cost + speed_cost + yaw_cost
+            self.dataset['rewards'].append(reward)
+
+    def ego_r1(self):
+        self.dataset['rewards'] = []
+        # TODO: self.max_speed
+        for t in range(len(self.dataset['observations'])):
+            ego_state = self.dataset['next_observations'][t][0:4]
+            # TODO: 碰撞奖励
+            # col_cost_ego = -20 if 0 in self.CollidingVehs else 0
+            col = col_test(self.car_info, self.dataset['next_observations'][t], self.road_info)
+            col_list = col[0] + col[1]
+            col_cost_ego = -20 if 0 in col_list else 0
+            speed_cost_ego = ego_state[2] / self.max_speed - 1 / 2
+            yaw_cost_ego = - abs(ego_state[3]) / (np.pi / 3) * 5 * 0
+            reward = col_cost_ego + speed_cost_ego + yaw_cost_ego
+            self.dataset['rewards'].append(reward)
+
 
 def batch_to_torch(batch, device):
     return {

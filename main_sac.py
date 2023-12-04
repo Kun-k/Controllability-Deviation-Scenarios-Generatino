@@ -106,7 +106,9 @@ FLAGS_DEF = define_flags_with_default(
 def main(argv):
     FLAGS = absl.flags.FLAGS
     # label = 'without_l1'
-    label = 'seed-without-l1_'
+    # label = 'seed-without-l1_'
+    # label = 'SACSAC-seed_'
+    label = ''
     run_name = f"{label}SAC_av={FLAGS.ego_policy}_" \
                f"bv={FLAGS.num_agents}-{FLAGS.adv_policy}_" \
                f"theta={FLAGS.deviation_theta}_" \
@@ -161,7 +163,8 @@ def main(argv):
     replay_buffer_sac = ReplayBuffer(num_state, num_action_adv, FLAGS.replay_buffer_size, device=FLAGS.device,
                                      datapath=None)
     replay_buffer_real = ReplayBuffer(num_state, num_action_adv, FLAGS.replay_buffer_size, device=FLAGS.device,
-                                     datapath=FLAGS.realdata_path, reward_fun="adv_r1")
+                                     datapath=FLAGS.realdata_path,
+                                      reward_fun="adv_r1", car_info=sim_env.car_info, road_info=sim_env.road_info)
     # replay_buffer_sac = ReplayBuffer(num_state, num_action_adv, FLAGS.replay_buffer_size, device=FLAGS.device,
     #                                  datapath=FLAGS.realdata_path)
 
