@@ -55,10 +55,11 @@ def col_test(car_info, car_state, road_info):
         matrix_car_i = matrix_car_list.pop(0)
         j = 0
         while j < len(car_info_):
+            ID_j = car_info_[j][0]
             matrix_car_j = matrix_car_list[j]
             collision = False
             for p in range(-1, 3):
-                c, d = matrix_car_i[p],  matrix_car_i[p + 1]
+                c, d = matrix_car_i[p], matrix_car_i[p + 1]
                 for q in range(-1, 3):
                     a, b = matrix_car_j[q], matrix_car_j[q + 1]
                     xmult1 = xmult(c, d, c, a)
@@ -73,9 +74,9 @@ def col_test(car_info, car_state, road_info):
             if collision:
                 if ID_i not in col_car_car_list:
                     col_car_car_list.append(ID_i)
-                col_car_car_list.append(car_info_.pop(j)[0])
-            else:
-                j += 1
+                if ID_j not in col_car_car_list:
+                    col_car_car_list.append(ID_j)
+            j += 1
     return col_car_car_list, col_car_road_list
 
 
