@@ -9,8 +9,8 @@ import torch.optim as optim
 from torch import nn as nn
 import torch.nn.functional as F
 
-from H2O.SimpleSAC.model import Scalar, soft_target_update
-from H2O.SimpleSAC.utils_h2o import prefix_metrics
+from models.model import Scalar, soft_target_update
+from utils.utils import prefix_metrics
 
 
 class ConservativeSAC(object):
@@ -34,17 +34,19 @@ class ConservativeSAC(object):
         config.cql_lagrange = False
         config.cql_target_action_gap = -1.0
         config.cql_temp = 1.0
-        config.cql_min_q_weight = 2.0
+        config.cql_min_q_weight = 1
         config.cql_max_target_backup = False
         config.cql_clip_diff_min = -np.inf
         config.cql_clip_diff_max = np.inf
+        config.alpha_l2 = 1.0
 
         if updates is not None:
             config.update(ConfigDict(updates).copy_and_resolve_references())
         return config
 
-    def __init__(self, config, policy, qf1, qf2, target_qf1, target_qf2):
+    def __init__(self, config, policy, qf1, qf2, target_qf1, target_qf2, alpha_l2=1):
         self.config = ConservativeSAC.get_default_config(config)
+        self.config.alpha_l2 = alpha_l2
         self.policy = policy
         self.qf1 = qf1
         self.qf2 = qf2
@@ -95,7 +97,7 @@ class ConservativeSAC(object):
         actions = batch['actions']
         rewards = batch['rewards']
         next_observations = batch['next_observations']
-        dones = batch['terminals']
+        dones = batch['dones']
 
         new_actions, log_pi = self.policy(observations)
 
@@ -141,7 +143,7 @@ class ConservativeSAC(object):
         if self.config.backup_entropy:
             target_q_values = target_q_values - alpha * next_log_pi
 
-        td_target = rewards + (~dones) * self.config.discount * target_q_values
+        td_target = rewards + (1 - dones) * self.config.discount * target_q_values
         qf1_loss = F.mse_loss(q1_pred, td_target.detach())
         qf2_loss = F.mse_loss(q2_pred, td_target.detach())
 
@@ -152,12 +154,12 @@ class ConservativeSAC(object):
         else:
             batch_size = actions.shape[0]
             action_dim = actions.shape[-1]
-            
+
             cql_random_actions = actions.new_empty((batch_size, self.config.cql_n_actions, action_dim), requires_grad=False).uniform_(-1, 1)
-            
+
             cql_current_actions, cql_current_log_pis = self.policy(observations, repeat=self.config.cql_n_actions)
             cql_next_actions, cql_next_log_pis = self.policy(next_observations, repeat=self.config.cql_n_actions)
-            
+
             cql_current_actions, cql_current_log_pis = cql_current_actions.detach(), cql_current_log_pis.detach()
             cql_next_actions, cql_next_log_pis = cql_next_actions.detach(), cql_next_log_pis.detach()
 
@@ -227,6 +229,21 @@ class ConservativeSAC(object):
             qf_loss = qf1_loss + qf2_loss + cql_min_qf1_loss + cql_min_qf2_loss
 
 
+        if self.config.alpha_l2 != 0:
+            real_observations = batch['observations']
+            real_actions = batch['actions']
+            pi_actions, _ = self.policy(real_observations)
+            qf1_kernal = torch.sum(self.qf1.embedding(real_observations, real_actions) *
+                                   self.qf1.embedding(real_observations, pi_actions.detach()), dim=1)
+            qf2_kernal = torch.sum(self.qf2.embedding(real_observations, real_actions) *
+                                   self.qf2.embedding(real_observations, pi_actions.detach()), dim=1)
+            qf1_l2_loss = torch.abs(qf1_kernal).mean()
+            qf2_l2_loss = torch.abs(qf2_kernal).mean()
+            l2_loss = self.config.alpha_l2 * (qf1_l2_loss + qf2_l2_loss)
+        # else:
+        #     l2_loss = torch.tensor([0.], device="cuda:0")
+
+
         if self.config.use_automatic_entropy_tuning:
             self.alpha_optimizer.zero_grad()
             alpha_loss.backward()
@@ -238,6 +255,8 @@ class ConservativeSAC(object):
 
         self.qf_optimizer.zero_grad()
         qf_loss.backward()
+        if self.config.alpha_l2 != 0:
+            l2_loss.backward()
         self.qf_optimizer.step()
 
         if self.total_steps % self.config.target_update_period == 0:
